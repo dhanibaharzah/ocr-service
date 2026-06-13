@@ -39,7 +39,7 @@ async def verify_document(
     min_match_score: float = Form(default=70.0, ge=0, le=100),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> VerifyResponse:
-    """Verify that expected text is found in the OCR result with sufficient confidence."""
+    """Verify expected text (e.g. name) appears in the document. PDFs: first 5 pages only."""
     _check_api_key(x_api_key)
     expected = expected_text.strip()
     if not expected:

@@ -8,8 +8,9 @@ from PIL import Image, ImageEnhance, ImageOps
 import pytesseract
 from pytesseract import Output
 
+from app.config import settings
 from app.models import OcrResponse, VerifyResponse, WordDetail
-from app.services.documents import load_document_pages
+from app.services.documents import iter_document_pages, load_document_pages
 
 # Document-style layout; works better for ID cards than Tesseract defaults.
 TESSERACT_CONFIG = "--psm 6"
@@ -220,6 +221,25 @@ def _token_match_score(expected: str, ocr_text: str) -> float:
     return _text_match_score(expected, ocr_text)
 
 
+def _verify_page(
+    page: Image.Image,
+    expected_text: str,
+    lang: str,
+    min_match_score: float,
+) -> tuple[str, list[WordDetail], str, float]:
+    processed = preprocess_pil(page)
+    text, words = _run_tesseract(processed, lang)
+    match_text = _enrich_match_text(
+        processed,
+        text,
+        expected_text,
+        lang,
+        min_match_score,
+    )
+    score = _token_match_score(expected_text, match_text)
+    return text, words, match_text, score
+
+
 def verify_text(
     document_bytes: bytes,
     expected_text: str,
@@ -229,37 +249,51 @@ def verify_text(
     min_match_score: float,
     debug: bool = False,
 ) -> VerifyResponse:
-    pages = load_document_pages(document_bytes, content_type)
+    scan_limit = settings.max_verify_pages
     page_texts: list[str] = []
     match_texts: list[str] = []
     all_words: list[WordDetail] = []
+    total_pages = 1
+    pages_scanned = 0
+    page_matched: int | None = None
 
-    for page in pages:
-        processed = preprocess_pil(page)
-        text, words = _run_tesseract(processed, lang)
+    for page_num, doc_total_pages, page in iter_document_pages(
+        document_bytes,
+        content_type,
+        max_pages=scan_limit,
+    ):
+        total_pages = doc_total_pages
+        pages_scanned = page_num
+        text, words, match_text, page_score = _verify_page(
+            page,
+            expected_text,
+            lang,
+            min_match_score,
+        )
         all_words.extend(words)
 
         if text.strip():
             page_texts.append(text.strip())
+        match_texts.append(match_text)
 
-        match_texts.append(
-            _enrich_match_text(
-                processed,
-                text,
-                expected_text,
-                lang,
-                min_match_score,
+        page_confidence = _average_confidence(words)
+        if page_score >= min_match_score and page_confidence >= min_confidence:
+            page_matched = page_num
+            return _build_verify_response(
+                verified=True,
+                confidence=page_confidence,
+                match_score=page_score,
+                page_texts=page_texts,
+                debug=debug,
+                pages_scanned=pages_scanned,
+                page_matched=page_matched,
+                total_pages=total_pages,
             )
-        )
 
     confidence = _average_confidence(all_words)
     combined_match_text = "\n\n".join(match_texts)
     match_score = _token_match_score(expected_text, combined_match_text)
-
-    verified = (
-        confidence >= min_confidence
-        and match_score >= min_match_score
-    )
+    verified = confidence >= min_confidence and match_score >= min_match_score
 
     details = None
     if not verified:
@@ -272,12 +306,44 @@ def verify_text(
             reasons.append(
                 f"Match score {match_score}% below threshold {min_match_score}%"
             )
+        if total_pages > pages_scanned:
+            reasons.append(
+                f"Text not found in first {pages_scanned} of {total_pages} pages"
+            )
         details = "; ".join(reasons)
 
+    return _build_verify_response(
+        verified=verified,
+        confidence=confidence,
+        match_score=match_score,
+        page_texts=page_texts,
+        debug=debug,
+        pages_scanned=pages_scanned,
+        page_matched=page_matched,
+        total_pages=total_pages,
+        details=details,
+    )
+
+
+def _build_verify_response(
+    *,
+    verified: bool,
+    confidence: float,
+    match_score: float,
+    page_texts: list[str],
+    debug: bool,
+    pages_scanned: int,
+    page_matched: int | None,
+    total_pages: int,
+    details: str | None = None,
+) -> VerifyResponse:
     return VerifyResponse(
         verified=verified,
         confidence=confidence,
         match_score=match_score,
         details=details,
         extracted_text="\n\n".join(page_texts) if debug else None,
+        pages_scanned=pages_scanned,
+        page_matched=page_matched,
+        total_pages=total_pages,
     )

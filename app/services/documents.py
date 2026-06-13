@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from collections.abc import Iterator
 
 import fitz
 from fastapi import HTTPException, UploadFile, status
@@ -50,40 +51,91 @@ def _open_image(data: bytes) -> Image.Image:
     return image.convert("RGB")
 
 
-def pdf_to_images(pdf_bytes: bytes, max_pages: int, dpi: int = 200) -> list[Image.Image]:
+def _open_pdf(data: bytes) -> fitz.Document:
     try:
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        return fitz.open(stream=data, filetype="pdf")
     except fitz.FileDataError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or corrupted PDF file.",
         ) from exc
 
-    if doc.page_count == 0:
-        doc.close()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="PDF has no pages.",
-        )
 
-    if doc.page_count > max_pages:
-        doc.close()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"PDF has too many pages. Max {max_pages} pages.",
-        )
-
-    images: list[Image.Image] = []
+def pdf_page_count(pdf_bytes: bytes) -> int:
+    doc = _open_pdf(pdf_bytes)
     try:
-        for page in doc:
-            pix = page.get_pixmap(dpi=dpi)
-            images.append(
-                Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-            )
+        return doc.page_count
     finally:
         doc.close()
 
-    return images
+
+def _render_pdf_page(doc: fitz.Document, page_index: int, dpi: int) -> Image.Image:
+    page = doc.load_page(page_index)
+    pix = page.get_pixmap(dpi=dpi)
+    return Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+
+
+def pdf_to_images(
+    pdf_bytes: bytes,
+    max_pages: int,
+    dpi: int | None = None,
+) -> list[Image.Image]:
+    doc = _open_pdf(pdf_bytes)
+    try:
+        if doc.page_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="PDF has no pages.",
+            )
+        if doc.page_count > max_pages:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"PDF has too many pages. Max {max_pages} pages.",
+            )
+
+        render_dpi = dpi or settings.ocr_pdf_dpi
+        return [
+            _render_pdf_page(doc, index, render_dpi)
+            for index in range(doc.page_count)
+        ]
+    finally:
+        doc.close()
+
+
+def iter_document_pages(
+    data: bytes,
+    content_type: str,
+    *,
+    max_pages: int | None = None,
+    dpi: int | None = None,
+) -> Iterator[tuple[int, int, Image.Image]]:
+    """Yield (page_number, total_pages, image) one page at a time."""
+    if content_type in ALLOWED_PDF_TYPES:
+        doc = _open_pdf(data)
+        try:
+            total_pages = doc.page_count
+            if total_pages == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="PDF has no pages.",
+                )
+            if total_pages > settings.max_pdf_pages:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"PDF has too many pages. Max {settings.max_pdf_pages} pages."
+                    ),
+                )
+
+            scan_limit = min(total_pages, max_pages or settings.max_verify_pages)
+            render_dpi = dpi or settings.verify_pdf_dpi
+            for index in range(scan_limit):
+                yield index + 1, total_pages, _render_pdf_page(doc, index, render_dpi)
+        finally:
+            doc.close()
+        return
+
+    yield 1, 1, _open_image(data)
 
 
 def load_document_pages(data: bytes, content_type: str) -> list[Image.Image]:

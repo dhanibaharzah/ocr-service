@@ -6,6 +6,7 @@ from PIL import Image, ImageDraw
 import pytest
 
 from app.services.documents import (
+    iter_document_pages,
     load_document_pages,
     pdf_to_images,
     resolve_content_type,
@@ -58,3 +59,23 @@ def test_pdf_to_images_rejects_invalid_bytes():
     with pytest.raises(HTTPException) as exc:
         pdf_to_images(b"not a pdf", max_pages=10)
     assert exc.value.status_code == 400
+
+
+def _make_multi_page_pdf(texts: list[str]) -> bytes:
+    doc = fitz.open()
+    for text in texts:
+        page = doc.new_page()
+        page.insert_text((72, 72), text)
+    pdf_bytes = doc.tobytes()
+    doc.close()
+    return pdf_bytes
+
+
+def test_iter_document_pages_stops_at_max_pages():
+    pdf = _make_multi_page_pdf(["PAGE1", "PAGE2", "PAGE3"])
+    scanned = list(
+        iter_document_pages(pdf, "application/pdf", max_pages=2)
+    )
+    assert len(scanned) == 2
+    assert scanned[0][:2] == (1, 3)
+    assert scanned[1][0] == 2

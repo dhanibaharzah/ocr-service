@@ -22,3 +22,15 @@ class VerifyResponse(BaseModel):
         default=None,
         description="OCR output; included only when DEBUG=true",
     )
+    pages_scanned: int | None = Field(
+        default=None,
+        description="Number of PDF pages OCR scanned (verify only)",
+    )
+    page_matched: int | None = Field(
+        default=None,
+        description="1-based page number where expected text matched (verify only)",
+    )
+    total_pages: int | None = Field(
+        default=None,
+        description="Total pages in the uploaded PDF (verify only)",
+    )
