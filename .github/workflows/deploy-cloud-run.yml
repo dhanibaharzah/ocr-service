@@ -53,7 +53,8 @@ jobs:
       - name: Build and push image
         run: |
           IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/${{ env.SERVICE_NAME }}:${{ github.sha }}"
-          gcloud builds submit --tag "${IMAGE}" .
+          BUILD_ID=$(gcloud builds submit --project "${{ env.PROJECT_ID }}" --tag "${IMAGE}" . --async --format='value(id)')
+          gcloud builds wait "${BUILD_ID}" --project "${{ env.PROJECT_ID }}"
           echo "IMAGE=${IMAGE}" >> "${GITHUB_ENV}"
 
       - name: Deploy to Cloud Run
