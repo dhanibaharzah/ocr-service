@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     api_key: str = ""
     default_lang: str = "ind+eng"
     max_file_size_mb: int = 10
-    max_pdf_pages: int = 10
+    max_pdf_pages: int = 100
     cors_origins: str = "*"
     debug: bool = False
 
