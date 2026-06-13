@@ -83,7 +83,7 @@ jobs:
             --max-instances 3 \
             --min-instances 0 \
             --port 8080 \
-            --set-env-vars "API_KEY=${{ secrets.OCR_API_KEY }},DEFAULT_LANG=ind+eng,MAX_FILE_SIZE_MB=10,CORS_ORIGINS=*"
+            --set-env-vars "API_KEY=${{ secrets.OCR_API_KEY }},DEFAULT_LANG=ind+eng,MAX_FILE_SIZE_MB=10,MAX_PDF_PAGES=10,DEBUG=false,CORS_ORIGINS=*"
 
       - name: Print service URL
         run: |

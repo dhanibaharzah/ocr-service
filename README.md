@@ -38,7 +38,7 @@ Ekstrak teks dari gambar.
 
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `file` | ✅ | — | JPEG, PNG, WebP, TIFF (max 10MB) |
+| `file` | ✅ | — | JPEG, PNG, WebP, TIFF, PDF (max 10MB, PDF max 10 pages) |
 | `lang` | ❌ | `ind+eng` | Tesseract language pack |
 
 **Response:**
@@ -60,7 +60,7 @@ Verifikasi apakah teks yang diharapkan ada di dokumen.
 
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `file` | ✅ | — | Gambar dokumen |
+| `file` | ✅ | — | Gambar atau PDF dokumen |
 | `expected_text` | ✅ | — | Teks/nama/NIK yang harus ditemukan |
 | `lang` | ❌ | `ind+eng` | Language pack |
 | `min_confidence` | ❌ | `60` | Threshold confidence OCR (0-100) |

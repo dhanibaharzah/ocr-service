@@ -16,6 +16,9 @@ class OcrResponse(BaseModel):
 class VerifyResponse(BaseModel):
     verified: bool
     confidence: float = Field(ge=0, le=100)
-    extracted_text: str
     match_score: float = Field(ge=0, le=100, description="How closely expected text matches OCR output")
     details: str | None = None
+    extracted_text: str | None = Field(
+        default=None,
+        description="OCR output; included only when DEBUG=true",
+    )
