@@ -1,0 +1,17 @@
+name: Keep Cloud Run warm
+
+on:
+  schedule:
+    # Every 5 minutes — keeps instance alive, avoids cold start (~5–10s)
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+env:
+  SERVICE_URL: https://ocr-service-f5svutg4xa-uc.a.run.app
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health endpoint
+        run: curl -sf "${{ env.SERVICE_URL }}/health" -o /dev/null -w "status=%{http_code} time=%{time_total}s\n"

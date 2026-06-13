@@ -10,7 +10,7 @@ from pytesseract import Output
 
 from app.config import settings
 from app.models import OcrResponse, VerifyResponse, WordDetail
-from app.services.documents import iter_document_pages, load_document_pages
+from app.services.documents import ALLOWED_PDF_TYPES, iter_document_pages, load_document_pages
 
 # Document-style layout; works better for ID cards than Tesseract defaults.
 TESSERACT_CONFIG = "--psm 6"
@@ -226,8 +226,10 @@ def _verify_page(
     expected_text: str,
     lang: str,
     min_match_score: float,
+    *,
+    min_ocr_width: int = MIN_OCR_WIDTH,
 ) -> tuple[str, list[WordDetail], str, float]:
-    processed = preprocess_pil(page)
+    processed = preprocess_pil(page, min_width=min_ocr_width)
     text, words = _run_tesseract(processed, lang)
     match_text = _enrich_match_text(
         processed,
@@ -250,6 +252,8 @@ def verify_text(
     debug: bool = False,
 ) -> VerifyResponse:
     scan_limit = settings.max_verify_pages
+    is_pdf = content_type in ALLOWED_PDF_TYPES
+    verify_min_width = settings.verify_min_ocr_width if is_pdf else MIN_OCR_WIDTH
     page_texts: list[str] = []
     match_texts: list[str] = []
     all_words: list[WordDetail] = []
@@ -269,6 +273,7 @@ def verify_text(
             expected_text,
             lang,
             min_match_score,
+            min_ocr_width=verify_min_width,
         )
         all_words.extend(words)
 

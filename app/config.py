@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     max_pdf_pages: int = 100
     max_verify_pages: int = 5
     verify_pdf_dpi: int = 150
+    verify_min_ocr_width: int = 0
     ocr_pdf_dpi: int = 200
     cors_origins: str = "*"
     debug: bool = False
