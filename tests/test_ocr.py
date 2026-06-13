@@ -54,3 +54,22 @@ def test_verify_response_debug_toggle():
     assert off.extracted_text is None
     assert on.extracted_text is not None
     assert "JOHN" in on.extracted_text.upper()
+
+
+def test_enrich_match_text_skips_second_pass_when_already_matched():
+    from unittest.mock import patch
+
+    from app.services.ocr import _enrich_match_text, preprocess_pil
+    from PIL import Image
+
+    processed = preprocess_pil(Image.new("RGB", (100, 100), "white"))
+    with patch("app.services.ocr._sparse_text_pass") as sparse:
+        result = _enrich_match_text(
+            processed,
+            "hello JOHN DOE world",
+            "JOHN DOE",
+            "eng",
+            70.0,
+        )
+    sparse.assert_not_called()
+    assert result == "hello JOHN DOE world"

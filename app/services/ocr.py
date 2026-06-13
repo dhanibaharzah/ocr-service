@@ -65,11 +65,12 @@ def _normalize_text(text: str) -> str:
     return cleaned
 
 
-def _extract_words(
+def _run_tesseract(
     image: Image.Image,
     lang: str,
     config: str = TESSERACT_CONFIG,
-) -> list[WordDetail]:
+) -> tuple[str, list[WordDetail]]:
+    """Single Tesseract pass — extracts text and word confidence together."""
     data = pytesseract.image_to_data(
         image,
         lang=lang,
@@ -77,6 +78,7 @@ def _extract_words(
         output_type=Output.DICT,
     )
     words: list[WordDetail] = []
+    line_parts: dict[tuple[int, int, int], list[str]] = {}
 
     for i, raw_text in enumerate(data["text"]):
         text = raw_text.strip()
@@ -86,11 +88,13 @@ def _extract_words(
             conf = float(data["conf"][i])
         except (TypeError, ValueError):
             continue
-        if conf < 0:
-            continue
-        words.append(WordDetail(text=text, confidence=conf))
+        if conf >= 0:
+            words.append(WordDetail(text=text, confidence=conf))
+        key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
+        line_parts.setdefault(key, []).append(text)
 
-    return words
+    lines = [" ".join(line_parts[key]) for key in sorted(line_parts)]
+    return "\n".join(lines), words
 
 
 def _average_confidence(words: list[WordDetail]) -> float:
@@ -109,11 +113,24 @@ def _sparse_text_pass(image: Image.Image, lang: str) -> str:
     return pytesseract.image_to_string(image, lang=lang, config=SPARSE_TESSERACT_CONFIG)
 
 
+def _enrich_match_text(
+    processed: Image.Image,
+    primary_text: str,
+    expected_text: str,
+    lang: str,
+    min_match_score: float,
+) -> str:
+    """Run a second OCR pass only when the primary pass did not match well enough."""
+    if _token_match_score(expected_text, primary_text) >= min_match_score:
+        return primary_text
+    if _is_numeric(expected_text):
+        return f"{primary_text}\n{_digits_only_pass(processed)}"
+    return f"{primary_text}\n{_sparse_text_pass(processed, lang)}"
+
+
 def _ocr_page(image: Image.Image, lang: str) -> tuple[str, list[WordDetail]]:
     processed = preprocess_pil(image)
-    text = pytesseract.image_to_string(processed, lang=lang, config=TESSERACT_CONFIG)
-    words = _extract_words(processed, lang)
-    return text, words
+    return _run_tesseract(processed, lang)
 
 
 def run_ocr(document_bytes: bytes, lang: str, content_type: str) -> OcrResponse:
@@ -219,19 +236,21 @@ def verify_text(
 
     for page in pages:
         processed = preprocess_pil(page)
-        text = pytesseract.image_to_string(processed, lang=lang, config=TESSERACT_CONFIG)
-        words = _extract_words(processed, lang)
+        text, words = _run_tesseract(processed, lang)
         all_words.extend(words)
 
         if text.strip():
             page_texts.append(text.strip())
 
-        page_match_text = text
-        if _is_numeric(expected_text):
-            page_match_text = f"{text}\n{_digits_only_pass(processed)}"
-        else:
-            page_match_text = f"{text}\n{_sparse_text_pass(processed, lang)}"
-        match_texts.append(page_match_text)
+        match_texts.append(
+            _enrich_match_text(
+                processed,
+                text,
+                expected_text,
+                lang,
+                min_match_score,
+            )
+        )
 
     confidence = _average_confidence(all_words)
     combined_match_text = "\n\n".join(match_texts)
